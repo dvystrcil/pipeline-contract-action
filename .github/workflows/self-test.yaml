@@ -1,0 +1,36 @@
+name: self-test
+
+# This repo already had a working test suite (tests/test_contract.py, 7
+# assertions over the fixtures in tests/fixtures) and no workflow to run
+# it, so nothing had ever executed it in CI.
+on:
+  pull_request:
+    paths:
+      - 'action.yaml'
+      - 'check_pipeline_contract.py'
+      - 'tests/**'
+      - '.github/workflows/self-test.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install --quiet pyyaml
+      # Invoked directly, NOT via `unittest discover`. These tests use a
+      # custom runner, so discover finds zero of them and exits 0 — a
+      # green check that ran nothing. Asserting the pass-count below is
+      # what makes that failure mode impossible.
+      - name: Contract tests
+        run: |
+          set -euo pipefail
+          python3 tests/test_contract.py | tee /tmp/out
+          n=$(grep -c '✓' /tmp/out)
+          [ "$n" -ge 7 ] || { echo "::error::expected >=7 passing tests, saw $n"; exit 1; }
+          echo "SELF-TEST-COMPLETE ($n assertions)"
