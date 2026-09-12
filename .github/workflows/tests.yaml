@@ -1,0 +1,66 @@
+name: tests
+
+# This repo had NO .github/workflows directory at all — only CODEOWNERS.
+#
+# It is a reusable action that other repos call to enforce their pipeline
+# contract, and `tests/test_contract.py` is the suite that proves the checker
+# still enforces what it claims. Seven tests, all passing, never executed by
+# anything. The suite's own docstring calls itself a "TDD test suite", which
+# makes the gap sharper rather than softer: it was written test-first and then
+# left with nothing to run it.
+#
+# An action whose contract check is itself unchecked is asking every consumer
+# to trust a gate nobody verifies. That is the shape homelab#1184 is about —
+# a check believed because it is green, when nothing has asked it to work.
+#
+# Stdlib only (ast, subprocess, pathlib), so there is nothing to install
+# beyond pytest.
+
+on:
+  pull_request:
+    paths:
+      - 'check_pipeline_contract.py'
+      - 'tests/**'
+      - 'action.yaml'
+      - '.github/workflows/tests.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'check_pipeline_contract.py'
+      - 'tests/**'
+      - 'action.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install pytest
+        run: python3 -m pip install --quiet pytest
+
+      - name: Contract checker tests
+        run: python3 -m pytest tests/ -q --strict-markers
+
+      # pytest exits 5 and prints "no tests ran" when it collects nothing,
+      # which in some invocations reads as success. Without this the workflow
+      # could go green having executed nothing — precisely the failure it
+      # exists to end, and precisely the failure this action checks other
+      # repos for.
+      - name: Assert the suite actually ran
+        run: |
+          set -euo pipefail
+          count=$(python3 -m pytest tests/ -q --collect-only 2>/dev/null \
+                  | grep -cE '^tests/' || true)
+          echo "collected $count test(s)"
+          if [ "$count" -lt 5 ]; then
+            echo "::error::collected only $count tests; 7 were present when this check was written. Either the suite shrank or collection is broken."
+            exit 1
+          fi
